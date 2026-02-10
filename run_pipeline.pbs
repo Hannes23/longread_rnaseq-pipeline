@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -l walltime=72:00:00
+#PBS -N Nextflow_Head_Job
+#PBS -l mem=8gb
+#PBS -l nodes=1:ppn=1
+#PBS -o ${VSC_DATA_VO_USER}/Project_1_exercise/Nextflow_stdout
+#PBS -e ${VSC_DATA_VO_USER}/Project_1_exercise/Nextflow_stderr
+
+module load Nextflow
+
+# Setup
+PROJECT_DIR="${VSC_DATA_VO_USER}/Nextflow"
+export APPTAINER_CACHEDIR="${VSC_DATA_VO_USER}/apptainer_cache"
+export NXF_WORK="${VSC_SCRATCH_VO_USER}/nextflow_work"
+mkdir -p $NXF_WORK $APPTAINER_CACHEDIR
+
+cd $PROJECT_DIR
+
+nextflow run main.nf \
+    -profile cluster \
+    -resume
