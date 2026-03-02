@@ -10,7 +10,11 @@ process MULTIQC {
 
     script:
     """
-    multiqc .
+    mkdir multiqc_input
+    cp -r ${multiqc_files} multiqc_input/
+
+    multiqc multiqc_input -o .
+
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         multiqc: \$( multiqc --version | sed -e "s/multiqc, version //g" )

@@ -1,21 +1,39 @@
 #!/bin/bash
-#PBS -l walltime=72:00:00
-#PBS -N Nextflow_Head_Job
-#PBS -l mem=8gb
-#PBS -l nodes=1:ppn=1
-#PBS -o ${VSC_DATA_VO_USER}/Project_1_exercise/Nextflow_stdout
-#PBS -e ${VSC_DATA_VO_USER}/Project_1_exercise/Nextflow_stderr
+#PBS -l walltime=48:00:00
+#PBS -N Nextflow_Test
+#PBS -m abe
+#PBS -l mem=32gb
+#PBS -l nodes=1:ppn=8
+#PBS -o /data/gent/vo/000/gvo00082/vsc48905/Project/Preprocessing/Shimada/Nextflow/Output/Nextflow.stdout
+#PBS -e /data/gent/vo/000/gvo00082/vsc48905/Project/Preprocessing/Shimada/Nextflow/Output/Nextflow.stderr
 
-module load Nextflow
+# 1. Load Nextflow (Ensure version matches what you need)
+module load Nextflow/25.10.2    
 
-# Setup
-PROJECT_DIR="${VSC_DATA_VO_USER}/Nextflow"
-export APPTAINER_CACHEDIR="${VSC_DATA_VO_USER}/apptainer_cache"
-export NXF_WORK="${VSC_SCRATCH_VO_USER}/nextflow_work"
+cd "${VSC_DATA_VO_USER}/Project/Preprocessing/Shimada/Nextflow/Output"
+
+
+# 2. Critical Paths (Use Scratch for heavy I/O)
+PROJECT_DIR="${VSC_DATA_VO_USER}/Nextflow/Pipeline"
+export NXF_HOME="${VSC_DATA_VO_USER}/.nextflow"         # Keep config/history in DATA
+export NXF_WORK="${VSC_SCRATCH_VO_USER}/nextflow_work"  # Keep temp files in SCRATCH
+export APPTAINER_CACHEDIR="${VSC_SCRATCH_VO_USER}/apptainer_cache" # Images are big -> SCRATCH
+
+# 3. Optimization Flags
+# specific to Java/Nextflow memory usage on the head node
+export NXF_OPTS="-Xms2g -Xmx20g"
+
 mkdir -p $NXF_WORK $APPTAINER_CACHEDIR
 
-cd $PROJECT_DIR
-
-nextflow run main.nf \
+# 4. Run the Pipeline
+nextflow run ${PROJECT_DIR}/main.nf \
     -profile cluster \
-    -resume
+    --input "${VSC_DATA_VO_USER}/Project/Preprocessing/Shimada/Nextflow/Input/Shimada.csv" \
+    --outdir results \
+    --platform 'SequelII' \
+    --genome /data/gent/vo/000/gvo00082/vsc48905/Genomes/Genome/GRCh38.primary_assembly.genome.fa \
+    --gtf /data/gent/vo/000/gvo00082/vsc48905/Genomes/Genome/gencode.v49.chr_patch_hapl_scaff.annotation.gtf \
+    -resume \
+    -with-report report.html \
+    -with-trace trace.txt \
+    -with-timeline timeline.html
