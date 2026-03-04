@@ -159,18 +159,19 @@ workflow LONGREAD_RNA {
     ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip)
     ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.html)
 
-    // FASTPLONG
-    ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.html)
+    // FASTPLONG outputs
+    ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.reads)  // include fastplong FASTQ outputs
+    ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.count)  // failed read counts
 
     // SQANTI3 reports
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_REPORT.out.report)
+    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_REPORT.out.html)
 
     // SQANTI3 filter reports
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_FILTER_REPORT.out.report)
+    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_FILTER_REPORT.out.pdf)
 
     // SALMON outputs (quant.sf + logs)
-    ch_multiqc_files = ch_multiqc_files.mix(SALMON_QUANT.out.quant)
-    ch_multiqc_files = ch_multiqc_files.mix(SALMON_QUANT.out.logs)
+    ch_multiqc_files = ch_multiqc_files.mix(SALMON_QUANT.out.results)
+    ch_multiqc_files = ch_multiqc_files.mix(SALMON_QUANT.out.log)
 
     // Run MultiQC once on all collected files
     MULTIQC(

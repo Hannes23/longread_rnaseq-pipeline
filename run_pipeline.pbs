@@ -15,7 +15,7 @@ cd "${VSC_DATA_VO_USER}/Project/Preprocessing/Shimada/Nextflow/Output"
 
 # 2. Critical Paths (Use Scratch for heavy I/O)
 PROJECT_DIR="${VSC_DATA_VO_USER}/Nextflow/Pipeline"
-export NXF_HOME="${VSC_DATA_VO_USER}/.nextflow"         # Keep config/history in DATA
+export NXF_HOME="${VSC_SCRATCH_VO_USER}/.nextflow"
 export NXF_WORK="${VSC_SCRATCH_VO_USER}/nextflow_work"  # Keep temp files in SCRATCH
 export APPTAINER_CACHEDIR="${VSC_SCRATCH_VO_USER}/apptainer_cache" # Images are big -> SCRATCH
 
