@@ -60,7 +60,8 @@ workflow LONGREAD_RNA {
         ISOQUANT.out.gtf,       
         ISOQUANT.out.counts,
         ch_gtf,
-        ch_genome
+        ch_genome,
+        params.data_type
     )
 
     SQANTI3_REPORT(
