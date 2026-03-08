@@ -35,8 +35,7 @@ workflow LONGREAD_RNA {
     // 3. REFERENCES & ASSETS
     ch_genome = Channel.value(file(params.genome))
     ch_gtf    = Channel.value(file(params.gtf))
-    
-    // NEW: Define the path to your strict JSON filter rules
+    data_type = params.data_type
     ch_filter_rules = Channel.value(file("${projectDir}/assets/filtering.json"))
 
     // --- PIPELINE LOGIC ---
@@ -47,21 +46,31 @@ workflow LONGREAD_RNA {
     FASTPLONG(ch_reads)
 
     // Alignment
-    MINIMAP2(FASTPLONG.out.reads, ch_genome)
+    MINIMAP2(FASTPLONG.out.reads, ch_genome, data_type)
 
     // IsoQuant (Correction, Discovery & Quantification)
+    // --- Collect Minimap2 Outputs ---
+    // Group all BAMs, BAIs, and Sample IDs into combined lists
+    ch_bams   = MINIMAP2.out.bam.map { meta, bam, bai -> bam }.collect()
+    ch_bais   = MINIMAP2.out.bam.map { meta, bam, bai -> bai }.collect()
+    ch_labels = MINIMAP2.out.bam.map { meta, bam, bai -> meta.id }.collect()
+
+    // IsoQuant (Correction, Discovery & Quantification on ALL samples at once)
     ISOQUANT(
-        MINIMAP2.out.bam,
+        ch_bams,
+        ch_bais,
+        ch_labels,
         ch_genome,
-        ch_gtf
+        ch_gtf,
+        data_type
     )
+
     // SQANTI3 QC
     SQANTI3(
         ISOQUANT.out.gtf,       
         ISOQUANT.out.counts,
         ch_gtf,
-        ch_genome,
-        params.data_type
+        ch_genome
     )
 
     SQANTI3_REPORT(

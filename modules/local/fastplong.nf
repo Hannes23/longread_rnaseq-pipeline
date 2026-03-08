@@ -11,30 +11,32 @@ process FASTPLONG {
     path "versions.yml"                       , emit: versions
 
     script:
-    def prefix = task.ext.prefix ?: "${meta.id}"            // defines prefix to be used, if defined or not defined
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    gunzip -c $reads > input.fastq
-    fastplong -i input.fastq -o ${prefix}_fastplong.fastq --failed_out ${prefix}_failed_reads.fastq -t $task.cpus
+    # THE FIX: Feed the compressed reads directly into fastplong!
+    fastplong \\
+        -i ${reads} \\
+        -o ${prefix}_fastplong.fastq \\
+        --failed_out ${prefix}_failed_reads.fastq \\
+        -t ${task.cpus}
+        
     # Check if file exists (it might not if 0 reads failed)
     if [ -f "${prefix}_failed_reads.fastq" ]; then
         # Count lines starting with @ (headers)
         count=\$(grep -c "^@" "${prefix}_failed_reads.fastq" || true)
-        echo "Sample: $prefix" > "${prefix}_failed_count.txt"
+        echo "Sample: ${prefix}" > "${prefix}_failed_count.txt"
         echo "Failed_Reads: \$count" >> "${prefix}_failed_count.txt"
         
         # DELETE the big file now that we have the number
         rm "${prefix}_failed_reads.fastq"
     else
-       echo "Sample: $prefix" > "${prefix}_failed_count.txt"
-    echo "Failed_Reads: 0" >> "${prefix}_failed_count.txt"
+        echo "Sample: ${prefix}" > "${prefix}_failed_count.txt"
+        echo "Failed_Reads: 0" >> "${prefix}_failed_count.txt"
     fi
-
-    rm input.fastq
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         fastplong: \$(fastplong --version 2>&1 | grep 'fastplong' | sed 's/fastplong //')
-        grep: \$(grep --version | head -n 1)
     END_VERSIONS
     """
 }

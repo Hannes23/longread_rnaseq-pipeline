@@ -1,30 +1,33 @@
 process ISOQUANT {
-    tag "$meta.id"
-    label 'process_high'
 
     input:
-    tuple val(meta), path(bam), path(bai)
+    path bams
+    path bais
+    val labels
     path genome
     path gtf
     val data_type
 
     output:
-    path "isoquant_out/${meta.id}.extended_annotation.gtf", emit: gtf
-    path "isoquant_out/${meta.id}.transcript_counts.tsv",   emit: counts
-    path "isoquant_out/${meta.id}.gene_counts.tsv",         emit: gene_counts, optional: true
-    path "versions.yml",                                    emit: versions
+    path "isoquant_out/Combined/*.extended_annotation.gtf", emit: gtf
+    path "isoquant_out/Combined/*.transcript_counts.tsv",   emit: counts
+    path "isoquant_out/Combined/*.gene_counts.tsv",         emit: gene_counts, optional: true
+    path "versions.yml",                                           emit: versions
 
     script:
-    def prefix = meta.id
+    // Convert the Nextflow list of labels into a space-separated string
+    def label_str = labels.join(' ')
     """
-    # Run IsoQuant with optimized HPC and Quantification flags
+    echo "Running IsoQuant on ALL samples combined..."
+
     isoquant.py \\
         --reference ${genome} \\
         --genedb ${gtf} \\
-        --bam ${bam} \\
+        --bam ${bams} \\
+        --labels ${label_str} \\
         --data_type ${data_type} \\
-        --prefix ${prefix} \\
-        --outdir isoquant_out \\
+        --prefix Combined \\
+        --output isoquant_out \\
         --threads ${task.cpus} \\
         --complete_genedb \\
         --genedb_output /tmp \\
