@@ -5,9 +5,8 @@ include { FASTQC } from '../modules/local/fastqc'
 include { FASTPLONG } from '../modules/local/fastplong'
 include { MINIMAP2 } from '../modules/local/minimap2'
 include { ISOQUANT } from '../modules/local/isoquant'
-include { SQANTI3; SQANTI3_REPORT } from '../modules/local/sqanti3'
-include { SQANTI3_FILTER; SQANTI3_FILTER_REPORT } from '../modules/local/sqanti3_filter'
-include { MULTIQC } from '../modules/local/multiqc'
+include { SQANTI3 } from '../modules/local/sqanti3'
+include { SQANTI3_FILTER } from '../modules/local/sqanti3_filter'
 
 // Workflow definition
 workflow LONGREAD_RNA {
@@ -23,11 +22,9 @@ workflow LONGREAD_RNA {
         .splitCsv(header: true)
         .map { row ->
             def meta = [:]
-            meta.id = row.sample
+            meta.id    = row.sample
+            meta.group = row.condition // Make sure 'condition' is a column in your CSV
             def fastq = file(row.fastq)
-            if (!fastq.exists()) {
-                exit 1, "ERROR: FastQ file not found: ${row.fastq}"
-            }
             return [ meta, fastq ]
         }
         .set { ch_reads }
@@ -39,33 +36,29 @@ workflow LONGREAD_RNA {
     ch_filter_rules = Channel.value(file("${projectDir}/assets/filtering.json"))
 
     // --- PIPELINE LOGIC ---
-    
 
-    // QC
+    // 1. QC
     FASTQC(ch_reads)
     FASTPLONG(ch_reads)
 
-    // Alignment
+    // 2. Alignment
     MINIMAP2(FASTPLONG.out.reads, ch_genome, data_type)
 
-    // IsoQuant (Correction, Discovery & Quantification)
-    // --- Collect Minimap2 Outputs ---
-    // Group all BAMs, BAIs, and Sample IDs into combined lists
-    ch_bams   = MINIMAP2.out.bam.map { meta, bam, bai -> bam }.collect()
-    ch_bais   = MINIMAP2.out.bam.map { meta, bam, bai -> bai }.collect()
-    ch_labels = MINIMAP2.out.bam.map { meta, bam, bai -> meta.id }.collect()
+    // 3. Grouping Logic (The most important part)
+    // We take the Minimap2 output and bundle it by meta.group
+    ch_grouped_inputs = MINIMAP2.out.bam
+        .map { meta, bam, bai -> [ meta.group, bam, bai, meta.id ] }
+        .groupTuple() 
 
-    // IsoQuant (Correction, Discovery & Quantification on ALL samples at once)
-    ISOQUANT(
-        ch_bams,
-        ch_bais,
-        ch_labels,
+    // 4. IsoQuant (Runs once per group)
+    ISOQUANT (
+        ch_grouped_inputs,
         ch_genome,
         ch_gtf,
         data_type
     )
 
-    // SQANTI3 QC
+    // 5. SQANTI3 (Runs once per group automatically)
     SQANTI3(
         ISOQUANT.out.gtf,       
         ISOQUANT.out.counts,
@@ -73,34 +66,17 @@ workflow LONGREAD_RNA {
         ch_genome
     )
 
-    SQANTI3_REPORT(
-        SQANTI3.out.original_classification,
-        SQANTI3.out.junctions,
-        SQANTI3.out.sqanti_params
-    )
+    // 6. SQANTI3 FILTER (Runs once per group automatically)
+    ch_classification = SQANTI3.out.original_classification
+    .map { file ->
+        def group_name = file.baseName.replace('_sqanti_classification', '')
+        tuple(group_name, file)
+    }
 
-    // SQANTI3 FILTER
     SQANTI3_FILTER(
-        SQANTI3.out.original_classification,
+        ch_classification,
         SQANTI3.out.fasta,
         SQANTI3.out.corrected_gtf,
         ch_filter_rules
     )
-
-    SQANTI3_FILTER_REPORT(
-        SQANTI3.out.original_classification,        
-        SQANTI3_FILTER.out.filtered_classification, 
-        SQANTI3_FILTER.out.reasons         
-    )
-
-    // MultiQC
-    ch_multiqc_files = Channel.empty()
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.html)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.count)
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_REPORT.out.html)
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_FILTER_REPORT.out.pdf)
-
-    MULTIQC(ch_multiqc_files.collect())
-
 }
