@@ -1,13 +1,12 @@
-// workflows/longread_rna.nf
-
 // Importing modules
 include { FASTQC } from '../modules/local/fastqc'
-include { FASTPLONG } from '../modules/local/fastplong'
+include { FLEXIPLEX_DISCOVER; FLEXIPLEX_FILTER; FLEXIPLEX_DEMUX } from '../modules/local/flexiplex'
 include { MINIMAP2 } from '../modules/local/minimap2'
+include { TAG_BAM } from '../modules/local/tag_bam'
+include { SAMTOOLS_MERGE } from '../modules/local/samtools_merge'
 include { ISOQUANT } from '../modules/local/isoquant'
-include { SQANTI3; SQANTI3_REPORT } from '../modules/local/sqanti3'
-include { SQANTI3_FILTER; SQANTI3_FILTER_REPORT } from '../modules/local/sqanti3_filter'
-include { MULTIQC } from '../modules/local/multiqc'
+include { SQANTI3 } from '../modules/local/sqanti3'
+include { SQANTI3_FILTER } from '../modules/local/sqanti3_filter'
 
 // Workflow definition
 workflow LONGREAD_RNA {
@@ -17,90 +16,103 @@ workflow LONGREAD_RNA {
         exit 1, "ERROR: Please provide a samplesheet via --input samplesheet.csv"
     }
 
+    // --- DEFINE REFERENCE CHANNELS --- (Added these back so your script doesn't crash)
+    ch_genome       = Channel.value(file(params.genome))
+    ch_gtf          = Channel.value(file(params.gtf))
+    data_type       = params.data_type
+    ch_filter_rules = Channel.value(file("${projectDir}/assets/filtering.json"))
+
     // 2. PARSE SAMPLESHEET
-    Channel
+    ch_base_reads = Channel
         .fromPath(params.input)
         .splitCsv(header: true)
         .map { row ->
             def meta = [:]
-            meta.id = row.sample
+            meta.id    = row.sample
+            meta.group = row.condition
             def fastq = file(row.fastq)
-            if (!fastq.exists()) {
-                exit 1, "ERROR: FastQ file not found: ${row.fastq}"
-            }
             return [ meta, fastq ]
         }
-        .set { ch_reads }
-
-    // 3. REFERENCES & ASSETS
-    ch_genome = Channel.value(file(params.genome))
-    ch_gtf    = Channel.value(file(params.gtf))
-    data_type = params.data_type
-    ch_filter_rules = Channel.value(file("${projectDir}/assets/filtering.json"))
-
-    // --- PIPELINE LOGIC ---
     
+    // 3. CHUNK THE FASTQ FILES
+    // Nextflow DSL2 allows us to reuse ch_base_reads directly!
+    ch_fastq_chunks = ch_base_reads.splitFastq(by: 10000000, file: true)
 
-    // QC
-    FASTQC(ch_reads)
-    FASTPLONG(ch_reads)
+    // --- PIPELINE ---
+    // Run FastQC on the WHOLE file
+    FASTQC( ch_base_reads )
 
-    // Alignment
-    MINIMAP2(FASTPLONG.out.reads, ch_genome, data_type)
+    // --- Flexiplex ---
+    FLEXIPLEX_DISCOVER(ch_base_reads, params.sc_chemistry)
+    FLEXIPLEX_FILTER(FLEXIPLEX_DISCOVER.out.counts)
 
-    // IsoQuant (Correction, Discovery & Quantification)
-    // --- Collect Minimap2 Outputs ---
-    // Group all BAMs, BAIs, and Sample IDs into combined lists
-    ch_bams   = MINIMAP2.out.bam.map { meta, bam, bai -> bam }.collect()
-    ch_bais   = MINIMAP2.out.bam.map { meta, bam, bai -> bai }.collect()
-    ch_labels = MINIMAP2.out.bam.map { meta, bam, bai -> meta.id }.collect()
+    ch_demux_input = ch_fastq_chunks.combine(FLEXIPLEX_FILTER.out.final_barcodes, by: 0)
 
-    // IsoQuant (Correction, Discovery & Quantification on ALL samples at once)
-    ISOQUANT(
-        ch_bams,
-        ch_bais,
-        ch_labels,
+    FLEXIPLEX_DEMUX(
+        ch_demux_input,
+        params.sc_chemistry,
+        params.sc_platform
+    )
+
+    // --- Alignment ---
+    MINIMAP2(
+        FLEXIPLEX_DEMUX.out.demux_fastq,
         ch_genome,
-        ch_gtf,
         data_type
     )
 
-    // SQANTI3 QC
+    // Inject the single-cell tags
+    TAG_BAM(
+        MINIMAP2.out.bam
+    )
+
+    // --- Prepare IsoQuant Input ---
+    // Group BAMs back together per sample (e.g. sample1_chunk1, sample1_chunk2)
+    ch_bams_to_merge = TAG_BAM.out.bam
+        .map { meta, bam, bai -> tuple(meta, bam) }   
+        .groupTuple(by: 0) 
+
+    SAMTOOLS_MERGE( ch_bams_to_merge )
+
+
+    ch_isoquant_input = SAMTOOLS_MERGE.out.merged_bam
+        .map { meta, bam, bai -> 
+            // We map to: [ group, bam, bai, label ]
+            tuple(meta.group, bam, bai, meta.id)
+        }
+        .groupTuple() 
+
+    // 4. Quantification
+    ISOQUANT(
+        ch_isoquant_input,
+        ch_genome,
+        ch_gtf,
+        params.data_type,
+        params.umi_tag,
+        params.barcode_tag,
+        params.sc_mode
+    )
+
+    // --- SQANTI3  ---
     SQANTI3(
-        ISOQUANT.out.gtf,       
+        ISOQUANT.out.gtf,
         ISOQUANT.out.counts,
         ch_gtf,
         ch_genome
     )
 
-    SQANTI3_REPORT(
-        SQANTI3.out.original_classification,
-        SQANTI3.out.junctions,
-        SQANTI3.out.sqanti_params
-    )
+    // --- FILTER ---
+    ch_classification = SQANTI3.out.original_classification
+        .map { file ->
+            def group_name = file.baseName.replace('_sqanti_classification', '')
+            tuple(group_name, file)
+        }
 
-    // SQANTI3 FILTER
     SQANTI3_FILTER(
-        SQANTI3.out.original_classification,
+        ch_classification,
         SQANTI3.out.fasta,
         SQANTI3.out.corrected_gtf,
         ch_filter_rules
     )
-
-    SQANTI3_FILTER_REPORT(
-        SQANTI3.out.original_classification,        
-        SQANTI3_FILTER.out.filtered_classification, 
-        SQANTI3_FILTER.out.reasons         
-    )
-
-    // MultiQC
-    ch_multiqc_files = Channel.empty()
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.html)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTPLONG.out.count)
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_REPORT.out.html)
-    ch_multiqc_files = ch_multiqc_files.mix(SQANTI3_FILTER_REPORT.out.pdf)
-
-    MULTIQC(ch_multiqc_files.collect())
 
 }

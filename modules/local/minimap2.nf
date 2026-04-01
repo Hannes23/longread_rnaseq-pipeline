@@ -7,18 +7,17 @@ process MINIMAP2 {
     val data_type // <--- ADD THIS
 
     output:
-    tuple val(meta), path("${meta.id}.sorted.bam"), path("${meta.id}.sorted.bam.bai"), emit: bam
+    tuple val(meta), path("${meta.id}_chunk_${task.index}.sorted.bam"), path("${meta.id}_chunk_${task.index}.sorted.bam.bai"), emit: bam
     path "versions.yml", emit: versions
 
     script:
-    def prefix  = meta.id
     // Dynamic memory calculation for Samtools Sort
     def avail_mem = task.memory ? task.memory.toGiga() : 64
     def sort_mem  = Math.max(2, (avail_mem * 0.8 / task.cpus).intValue()) + 'G'
     
     // THE FIX: Dynamically assign the best minimap2 preset based on data type!
     def preset = data_type == 'pacbio_ccs' ? 'splice:hq' : 'splice -k14'
-
+    def prefix  = "${meta.id}_chunk_${task.index}"
     """
     echo "DEBUG: Available Mem: ${avail_mem}GB, Threads: ${task.cpus}, Sort Buffer per thread: ${sort_mem}"
 
@@ -31,6 +30,7 @@ process MINIMAP2 {
         -ax ${preset} \\
         -uf \\
         --secondary=no \\
+        -y \\
         -MD \\
         -t ${task.cpus} \\
         ${genome} \\
@@ -48,6 +48,8 @@ process MINIMAP2 {
 
     # Cleanup intermediate SAM to save space
     rm ${prefix}.sam
+    rm -f \$(realpath ${reads})
+    
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
