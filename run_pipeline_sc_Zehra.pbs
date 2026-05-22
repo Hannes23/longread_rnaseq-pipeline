@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l walltime=48:00:00
+#PBS -l walltime=72:00:00
 #PBS -N Nextflow_SC
 #PBS -m abe
 #PBS -l mem=12gb
@@ -11,9 +11,6 @@
 module load Nextflow/25.10.2    
 
 cd "${VSC_DATA_VO_USER}/Project/Preprocessing/Zehra/Nextflow/Output"  # adjust
-
-nextflow clean -but keep-last
-
 
 # 2. Critical Paths (Use Scratch for heavy I/O)
 PROJECT_DIR="${VSC_DATA_VO_USER}/Nextflow/Pipeline_IsoQuant_Single_cell"
@@ -41,7 +38,5 @@ nextflow run ${PROJECT_DIR}/main.nf \
     --genome /data/gent/vo/000/gvo00082/vsc48905/Genomes/Genome/GRCh38.primary_assembly.genome.fa \
     --gtf /data/gent/vo/000/gvo00082/vsc48905/Genomes/Genome/gencode.v49.chr_patch_hapl_scaff.annotation.gtf \
     -resume \
-    -with-report report.html \
     -with-trace trace.txt \
-    -with-timeline timeline.html \
     -with-dag flowchart.png \ 

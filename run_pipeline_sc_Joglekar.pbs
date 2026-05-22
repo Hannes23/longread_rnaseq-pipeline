@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l walltime=48:00:00
+#PBS -l walltime=72:00:00
 #PBS -N Nextflow_SC
 #PBS -m abe
 #PBS -l mem=12gb
